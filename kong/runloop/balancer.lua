@@ -839,9 +839,10 @@ local function update_balancer_state(premature)
 
   concurrency.with_coroutine_mutex(opts, function()
     if is_worker_state_stale() then
+      local updated_upstreams_dict = load_upstreams_dict_into_memory()
       singletons.core_cache:invalidate_local("balancer:upstreams")
       local _, err = singletons.core_cache:get("balancer:upstreams",
-                      { neg_ttl = 10 }, load_upstreams_dict_into_memory)
+                      { neg_ttl = 10 }, function() return updated_upstreams_dict end)
       if err then
         log(CRIT, "failed updating list of upstreams: ", err)
       else
