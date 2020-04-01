@@ -11,118 +11,124 @@ CassandraConnector.__index = CassandraConnector
 function CassandraConnector.new(kong_config)
   local resolved_contact_points = {}
 
-  do
-    -- Resolve contact points before instantiating cluster, since the
-    -- driver does not support hostnames in the contact points list.
-    --
-    -- The below logic includes a hack so that we are able to run our DNS
-    -- resolver in init_by_lua:
-    --
-    -- 1. We override ngx.socket.tcp/udp so that resty.dns.resolver will run
-    --    in init_by_lua (which has no cosockets)
-    -- 2. We force the dns_no_sync option so that resty.dns.client will not
-    --    spawn an ngx.timer (not supported in init_by_lua)
-    --
-    -- TODO: replace fallback logic with lua-resty-socket once it supports
-    --       ngx.socket.udp
-
-    local tcp_old = ngx.socket.tcp
-    local udp_old = ngx.socket.udp
-
-    local dns_no_sync_old = kong_config.dns_no_sync
-
-    package.loaded["socket"] = nil
-    package.loaded["kong.tools.dns"] = nil
-    package.loaded["resty.dns.client"] = nil
-    package.loaded["resty.dns.resolver"] = nil
-
-    ngx.socket.tcp = function(...) -- luacheck: ignore
-      local tcp = require("socket").tcp(...)
-      return setmetatable({}, {
-        __newindex = function(_, k, v)
-          tcp[k] = v
-        end,
-        __index = function(_, k)
-          if type(tcp[k]) == "function" then
-            return function(_, ...)
-              if k == "send" then
-                local value = select(1, ...)
-                if type(value) == "table" then
-                  return tcp.send(tcp, table.concat(value))
-                end
-
-                return tcp.send(tcp, ...)
-
-              elseif k == "settimeout" then
-                return tcp.settimeout(tcp, select(1, ...)/1000)
-              end
-
-              return tcp[k](tcp, ...)
-            end
-          end
-
-          return tcp[k]
-        end
-      })
-    end
-
-    ngx.socket.udp = function(...) -- luacheck: ignore
-      local udp = require("socket").udp(...)
-      return setmetatable({}, {
-        __newindex = function(_, k, v)
-          udp[k] = v
-        end,
-        __index = function(_, k)
-          if type(udp[k]) == "function" then
-            return function(_, ...)
-              if k == "send" then
-                local value = select(1, ...)
-                if type(value) == "table" then
-                  return udp.send(udp, table.concat(value))
-                end
-
-                return udp.send(udp, ...)
-
-              elseif k == "settimeout" then
-                return udp.settimeout(udp, select(1, ...)/1000)
-              end
-
-              return udp[k](udp, ...)
-            end
-          end
-
-          return udp[k]
-        end
-      })
-    end
-
-    local dns_tools = require "kong.tools.dns"
-
-    kong_config.dns_no_sync = true
-
-    local dns = dns_tools(kong_config)
-
+  if kong_config.cassandra_sni_host then
     for i, cp in ipairs(kong_config.cassandra_contact_points) do
-      local ip, err, try_list = dns.toip(cp)
-      if not ip then
-        log.error("[cassandra] DNS resolution failed for contact " ..
-                  "point '%s': %s. Tried: %s", cp, err, tostring(try_list))
-
-      else
-        log.debug("resolved Cassandra contact point '%s' to: %s", cp, ip)
-        resolved_contact_points[i] = ip
-      end
+      resolved_contact_points[i] = cp
     end
+  else
+    do
+      -- Resolve contact points before instantiating cluster, since the
+      -- driver does not support hostnames in the contact points list.
+      --
+      -- The below logic includes a hack so that we are able to run our DNS
+      -- resolver in init_by_lua:
+      --
+      -- 1. We override ngx.socket.tcp/udp so that resty.dns.resolver will run
+      --    in init_by_lua (which has no cosockets)
+      -- 2. We force the dns_no_sync option so that resty.dns.client will not
+      --    spawn an ngx.timer (not supported in init_by_lua)
+      --
+      -- TODO: replace fallback logic with lua-resty-socket once it supports
+      --       ngx.socket.udp
 
-    kong_config.dns_no_sync = dns_no_sync_old
+      local tcp_old = ngx.socket.tcp
+      local udp_old = ngx.socket.udp
 
-    package.loaded["resty.dns.resolver"] = nil
-    package.loaded["resty.dns.client"] = nil
-    package.loaded["kong.tools.dns"] = nil
-    package.loaded["socket"] = nil
+      local dns_no_sync_old = kong_config.dns_no_sync
 
-    ngx.socket.udp = udp_old -- luacheck: ignore
-    ngx.socket.tcp = tcp_old -- luacheck: ignore
+      package.loaded["socket"] = nil
+      package.loaded["kong.tools.dns"] = nil
+      package.loaded["resty.dns.client"] = nil
+      package.loaded["resty.dns.resolver"] = nil
+
+      ngx.socket.tcp = function(...) -- luacheck: ignore
+        local tcp = require("socket").tcp(...)
+        return setmetatable({}, {
+          __newindex = function(_, k, v)
+            tcp[k] = v
+          end,
+          __index = function(_, k)
+            if type(tcp[k]) == "function" then
+              return function(_, ...)
+                if k == "send" then
+                  local value = select(1, ...)
+                  if type(value) == "table" then
+                    return tcp.send(tcp, table.concat(value))
+                  end
+
+                  return tcp.send(tcp, ...)
+
+                elseif k == "settimeout" then
+                  return tcp.settimeout(tcp, select(1, ...)/1000)
+                end
+
+                return tcp[k](tcp, ...)
+              end
+            end
+
+            return tcp[k]
+          end
+        })
+      end
+
+      ngx.socket.udp = function(...) -- luacheck: ignore
+        local udp = require("socket").udp(...)
+        return setmetatable({}, {
+          __newindex = function(_, k, v)
+            udp[k] = v
+          end,
+          __index = function(_, k)
+            if type(udp[k]) == "function" then
+              return function(_, ...)
+                if k == "send" then
+                  local value = select(1, ...)
+                  if type(value) == "table" then
+                    return udp.send(udp, table.concat(value))
+                  end
+
+                  return udp.send(udp, ...)
+
+                elseif k == "settimeout" then
+                  return udp.settimeout(udp, select(1, ...)/1000)
+                end
+
+                return udp[k](udp, ...)
+              end
+            end
+
+            return udp[k]
+          end
+        })
+      end
+
+      local dns_tools = require "kong.tools.dns"
+
+      kong_config.dns_no_sync = true
+
+      local dns = dns_tools(kong_config)
+
+      for i, cp in ipairs(kong_config.cassandra_contact_points) do
+        local ip, err, try_list = dns.toip(cp)
+        if not ip then
+          log.error("[cassandra] DNS resolution failed for contact " ..
+                    "point '%s': %s. Tried: %s", cp, err, tostring(try_list))
+
+        else
+          log.debug("resolved Cassandra contact point '%s' to: %s", cp, ip)
+          resolved_contact_points[i] = ip
+        end
+      end
+
+      kong_config.dns_no_sync = dns_no_sync_old
+
+      package.loaded["resty.dns.resolver"] = nil
+      package.loaded["resty.dns.client"] = nil
+      package.loaded["kong.tools.dns"] = nil
+      package.loaded["socket"] = nil
+
+      ngx.socket.udp = udp_old -- luacheck: ignore
+      ngx.socket.tcp = tcp_old -- luacheck: ignore
+    end
   end
 
   if #resolved_contact_points == 0 then
@@ -135,6 +141,7 @@ function CassandraConnector.new(kong_config)
     shm                       = "kong_cassandra",
     contact_points            = resolved_contact_points,
     default_port              = kong_config.cassandra_port,
+    sni_host                  = kong_config.cassandra_sni_host,
     keyspace                  = kong_config.cassandra_keyspace,
     timeout_connect           = kong_config.cassandra_timeout,
     timeout_read              = kong_config.cassandra_timeout,

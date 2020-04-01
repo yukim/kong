@@ -330,6 +330,7 @@ local CONF_INFERENCES = {
   pg_ro_semaphore_timeout = { typ = "number" },
 
   cassandra_contact_points = { typ = "array" },
+  cassandra_sni_host = { typ = "string" },
   cassandra_port = { typ = "number" },
   cassandra_password = { typ = "string" },
   cassandra_timeout = { typ = "number" },

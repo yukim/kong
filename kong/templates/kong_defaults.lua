@@ -108,6 +108,7 @@ pg_ro_max_concurrent_queries = NONE
 pg_ro_semaphore_timeout = NONE
 
 cassandra_contact_points = 127.0.0.1
+cassandra_sni_host = NONE
 cassandra_port = 9042
 cassandra_keyspace = kong
 cassandra_timeout = 5000
